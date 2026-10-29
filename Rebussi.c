@@ -11,13 +11,19 @@
 
 #define MAX_WORDS 8
 
+// структура для столбцов сложения
+typedef struct
+{
+    int letter[MAX_WORDS];
+    int order[7];
+} Column;
+
 static const char *words[MAX_WORDS];
 static size_t lengths[MAX_WORDS], column_count;
 static int letters[10], letter_count, term_count;
-// ___________________________________________________________________________
+static int digit[26], used[10], leading[26];
 
-static int digit[26], used[10], leading[26]; // массив digit для прямого доступа к индексам букв
-// ___________________________________________________________________________
+static Column *columns;
 
 static int parse(const char *text)
 {
@@ -27,7 +33,6 @@ static int parse(const char *text)
     column_count = 0;
     memset(used, 0, sizeof used);
     memset(leading, 0, sizeof leading);
-
     for (int i = 0; i < 26; i++)
         digit[i] = -1;
 
@@ -86,7 +91,27 @@ static int parse(const char *text)
     }
 }
 
-// функция find_letter была удалена
+// функция подготовки столбцов
+static int prepare_columns(void)
+{
+    if (column_count > SIZE_MAX / sizeof *columns)
+        return 0;
+    columns = (Column *)malloc(column_count * sizeof *columns);
+    if (columns == NULL)
+        return 0;
+    for (size_t col = 0; col < column_count; col++)
+    {
+        for (int row = 0; row <= term_count; row++)
+        {
+            columns[col].letter[row] = col < lengths[row]
+                                           ? words[row][lengths[row] - 1 - col] - 'A'
+                                           : -1;
+        }
+        for (int row = 0; row < term_count; row++)
+            columns[col].order[row] = row;
+    }
+    return 1;
+}
 
 static int check_sum(void)
 {
@@ -96,19 +121,17 @@ static int check_sum(void)
         int sum = carry;
         for (int row = 0; row < term_count; row++)
         {
-            if (col < lengths[row])
+            // чтение готовых индексов букв
+            int id = columns[col].letter[row];
+            if (id != -1)
             {
-                char c = words[row][lengths[row] - 1 - col];
-                sum += digit[c - 'A'];
+                sum += digit[id];
             }
         }
-        char result_char = '\0';
-        if (col < lengths[term_count])
-        {
-            result_char = words[term_count][lengths[term_count] - 1 - col];
-        }
 
-        int expected_digit = result_char != '\0' ? digit[result_char - 'A'] : 0;
+        int result_id = columns[col].letter[term_count];
+        int expected_digit = result_id != -1 ? digit[result_id] : 0;
+
         if (sum % 10 != expected_digit)
             return 0;
         carry = sum / 10;
@@ -127,7 +150,6 @@ static int search(int index)
     {
         if (used[d] || (d == 0 && leading[id]))
             continue;
-
         digit[id] = d;
         used[d] = 1;
         if (search(index + 1))
@@ -142,7 +164,16 @@ char *solve_rebus(const char *text)
 {
     if (text == NULL || !parse(text))
         return NULL;
-    if (!search(0))
+    // вызов перед перебором для ускорения
+    if (!prepare_columns())
+        return NULL;
+
+    int found = search(0);
+
+    free(columns);
+    columns = NULL;
+
+    if (!found)
         return NULL;
     size_t length = strlen(text);
     if (length == SIZE_MAX)
@@ -153,7 +184,6 @@ char *solve_rebus(const char *text)
     for (size_t i = 0; i <= length; i++)
     {
         char c = text[i];
-
         result[i] = c >= 'A' && c <= 'Z' ? (char)('0' + digit[c - 'A']) : c;
     }
     return result;
